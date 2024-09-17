@@ -348,4 +348,7 @@ static void secp256k1_fe_verify(const secp256k1_fe *a);
 static void secp256k1_fe_verify_magnitude(const secp256k1_fe *a, int m);
 #define SECP256K1_FE_VERIFY_MAGNITUDE(a, m) secp256k1_fe_verify_magnitude(a, m)
 
+/** Checks whether a field element is a quadratic residue. */
+static int secp256k1_fe_is_quad_var(const secp256k1_fe *a);
+
 #endif /* SECP256K1_FIELD_H */

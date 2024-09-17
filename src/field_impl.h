@@ -145,6 +145,11 @@ static int secp256k1_fe_sqrt(secp256k1_fe * SECP256K1_RESTRICT r, const secp256k
     return ret;
 }
 
+static int secp256k1_fe_is_quad_var(const secp256k1_fe *a) {
+    secp256k1_fe r;
+    return secp256k1_fe_sqrt(&r, a);
+}
+
 #ifndef VERIFY
 static void secp256k1_fe_verify(const secp256k1_fe *a) { (void)a; }
 static void secp256k1_fe_verify_magnitude(const secp256k1_fe *a, int m) { (void)a; (void)m; }

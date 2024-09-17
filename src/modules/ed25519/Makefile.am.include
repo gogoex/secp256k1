@@ -1,0 +1,16 @@
+include_HEADERS += include/secp256k1_ed25519.h
+noinst_HEADERS += src/modules/ed25519/ref10/fe_25_5/base.h
+noinst_HEADERS += src/modules/ed25519/ref10/fe_25_5/base2.h
+noinst_HEADERS += src/modules/ed25519/ref10/fe_25_5/fe.h
+noinst_HEADERS += src/modules/ed25519/ref10/fe_25_5/constants.h
+noinst_HEADERS += src/modules/ed25519/ref10/ed25519_ref10_fe_51.h
+noinst_HEADERS += src/modules/ed25519/ref10/ed25519_ref10.h
+noinst_HEADERS += src/modules/ed25519/ref10/ed25519_ref10_fe_25_5.h
+noinst_HEADERS += src/modules/ed25519/common.h
+noinst_HEADERS += src/modules/ed25519/utils.h
+noinst_HEADERS += src/modules/ed25519/core_ed25519.h
+noinst_HEADERS += src/modules/ed25519/scalarmult_ed25519_ref10.h
+noinst_HEADERS += src/modules/ed25519/tests_impl.h
+noinst_HEADERS += src/modules/ed25519/main_impl.h
+noinst_HEADERS += src/modules/ed25519/sha512/hash_sha512_cp.h
+noinst_HEADERS += src/modules/ed25519/sha512/hash_sha512.h

@@ -7695,6 +7695,22 @@ static void run_ecdsa_wycheproof(void) {
 # include "modules/ellswift/tests_impl.h"
 #endif
 
+#ifdef ENABLE_MODULE_ED25519
+# include "modules/ed25519/tests_impl.h"
+#endif
+
+#ifdef ENABLE_MODULE_GENERATOR
+# include "modules/generator/tests_impl.h"
+#endif
+
+#ifdef ENABLE_MODULE_DLEAG
+# include "modules/dleag/tests_impl.h"
+#endif
+
+#ifdef ENABLE_MODULE_ECDSAOTVES
+# include "modules/ecdsaotves/tests_impl.h"
+#endif
+
 static void run_secp256k1_memczero_test(void) {
     unsigned char buf1[6] = {1, 2, 3, 4, 5, 6};
     unsigned char buf2[sizeof(buf1)];
@@ -8033,6 +8049,19 @@ static const struct tf_test_module registry_modules[] = {
 #ifdef ENABLE_MODULE_ELLSWIFT
     MAKE_TEST_MODULE(ellswift),
 #endif
+
+#ifdef ENABLE_MODULE_ED25519
+    MAKE_TEST_MODULE(ed25519),
+#endif
+#ifdef ENABLE_MODULE_GENERATOR
+    MAKE_TEST_MODULE(generator),
+#endif
+#ifdef ENABLE_MODULE_DLEAG
+    MAKE_TEST_MODULE(dleag),
+#endif
+#ifdef ENABLE_MODULE_ECDSAOTVES
+    MAKE_TEST_MODULE(ecdsaotves),
+#endif
     MAKE_TEST_MODULE(utils),
 };
 
@@ -8056,6 +8085,7 @@ static int setup(void) {
     CHECK(STATIC_CTX != NULL);
     memcpy(STATIC_CTX, secp256k1_context_static, sizeof(secp256k1_context));
     CHECK(!secp256k1_context_is_proper(STATIC_CTX));
+
     return 0;
 }
 

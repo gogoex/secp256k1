@@ -1,6 +1,7 @@
 bench
 bench_ecmult
 bench_internal
+bench_generator
 noverify_tests
 tests
 exhaustive_tests
@@ -37,6 +38,7 @@ libtool
 *.lo
 *.o
 *~
+src/libsecp256k1-config.h.in
 
 coverage/
 coverage.html

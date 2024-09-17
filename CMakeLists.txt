@@ -47,11 +47,22 @@ option(SECP256K1_ENABLE_API_VISIBILITY_ATTRIBUTES "Enable visibility attributes 
 # We declare all options before processing them, to make sure we can express
 # dependencies while processing.
 option(SECP256K1_ENABLE_MODULE_ECDH "Enable ECDH module." ON)
-option(SECP256K1_ENABLE_MODULE_RECOVERY "Enable ECDSA pubkey recovery module." OFF)
+option(SECP256K1_ENABLE_MODULE_RECOVERY "Enable ECDSA pubkey recovery module." ON)
 option(SECP256K1_ENABLE_MODULE_EXTRAKEYS "Enable extrakeys module." ON)
 option(SECP256K1_ENABLE_MODULE_SCHNORRSIG "Enable schnorrsig module." ON)
 option(SECP256K1_ENABLE_MODULE_MUSIG "Enable musig module." ON)
 option(SECP256K1_ENABLE_MODULE_ELLSWIFT "Enable ElligatorSwift module." ON)
+
+option(SECP256K1_ENABLE_MODULE_GENERATOR "Enable generator module." ON)
+option(SECP256K1_ENABLE_MODULE_ED25519 "Enable ed25519 module." ON)
+option(SECP256K1_ENABLE_MODULE_DLEAG "Enable DLEAG module." ON)
+option(SECP256K1_ENABLE_MODULE_ECDSAOTVES "Enable ECDSA OT-VES module." ON)
+
+# Processing must be done in a topological sorting of the dependency graph
+# (dependent module first).
+if(SECP256K1_ENABLE_MODULE_ELLSWIFT)
+  add_compile_definitions(ENABLE_MODULE_ELLSWIFT=1)
+endif()
 
 option(SECP256K1_USE_EXTERNAL_DEFAULT_CALLBACKS "Enable external default callback functions." OFF)
 if(SECP256K1_USE_EXTERNAL_DEFAULT_CALLBACKS)
@@ -116,6 +127,15 @@ option(SECP256K1_EXPERIMENTAL "Allow experimental configuration options." OFF)
 if(NOT SECP256K1_EXPERIMENTAL)
   if(SECP256K1_ASM STREQUAL "arm32")
     message(FATAL_ERROR "ARM32 assembly is experimental. Use -DSECP256K1_EXPERIMENTAL=ON to allow.")
+  endif()
+  if(SECP256K1_ENABLE_MODULE_DLEAG)
+    message(FATAL_ERROR "DLEAG module is experimental. Use -DSECP256K1_EXPERIMENTAL=ON to allow.")
+  endif()
+  if(SECP256K1_ENABLE_MODULE_ECDSAOTVES)
+    message(FATAL_ERROR "ECDSAOTVES module is experimental. Use -DSECP256K1_EXPERIMENTAL=ON to allow.")
+  endif()
+  if(SECP256K1_ENABLE_MODULE_ED25519)
+    message(FATAL_ERROR "ED25519 module is experimental. Use -DSECP256K1_EXPERIMENTAL=ON to allow.")
   endif()
 endif()
 
@@ -204,7 +224,7 @@ if(MSVC)
   add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
 else()
   try_append_c_flags(-Wall) # GCC >= 2.95 and probably many other compilers.
-endif()  
+endif()
 if(CMAKE_C_COMPILER_ID STREQUAL "MSVC")
   # Keep the following commands ordered lexicographically.
   try_append_c_flags(/wd4146) # Disable warning C4146 "unary minus operator applied to unsigned type, result still unsigned".
@@ -287,6 +307,12 @@ message("  extrakeys ........................... ${SECP256K1_ENABLE_MODULE_EXTRA
 message("  schnorrsig .......................... ${SECP256K1_ENABLE_MODULE_SCHNORRSIG}")
 message("  musig ............................... ${SECP256K1_ENABLE_MODULE_MUSIG}")
 message("  ElligatorSwift ...................... ${SECP256K1_ENABLE_MODULE_ELLSWIFT}")
+
+message("  generator ........................... ${SECP256K1_ENABLE_MODULE_GENERATOR}")
+message("  ed25519 ............................. ${SECP256K1_ENABLE_MODULE_ED25519}")
+message("  DLEAG ............................... ${SECP256K1_ENABLE_MODULE_DLEAG}")
+message("  ECDSA OT-VES ........................ ${SECP256K1_ENABLE_MODULE_ECDSAOTVES}")
+
 message("Parameters:")
 message("  ecmult window size .................. ${SECP256K1_ECMULT_WINDOW_SIZE}")
 message("  ecmult gen table size ............... ${SECP256K1_ECMULT_GEN_KB} KiB")

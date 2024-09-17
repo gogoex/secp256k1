@@ -193,6 +193,26 @@ AC_ARG_ENABLE(module_ellswift,
     AS_HELP_STRING([--enable-module-ellswift],[enable ElligatorSwift module [default=yes]]), [],
     [SECP_SET_DEFAULT([enable_module_ellswift], [yes], [yes])])
 
+AC_ARG_ENABLE(module_ed25519,
+    AS_HELP_STRING([--enable-module-ed25519],[enable curve ed25519 module (default is no)]),
+    [enable_module_ed25519=$enableval],
+    [enable_module_ed25519=no])
+
+AC_ARG_ENABLE(module_generator,
+    AS_HELP_STRING([--enable-module-generator],[enable NUMS generator module (default is no)]),
+    [enable_module_generator=$enableval],
+    [enable_module_generator=no])
+
+AC_ARG_ENABLE(module_dleag,
+    AS_HELP_STRING([--enable-module-dleag],[enable DLEAG module (default is no)]),
+    [enable_module_dleag=$enableval],
+    [enable_module_dleag=no])
+
+AC_ARG_ENABLE(module_ecdsaotves,
+    AS_HELP_STRING([--enable-module-ecdsaotves],[enable ECDSA OT-VES module (default is no)]),
+    [enable_module_ecdsaotves=$enableval],
+    [enable_module_ecdsaotves=no])
+
 AC_ARG_ENABLE(external_default_callbacks,
     AS_HELP_STRING([--enable-external-default-callbacks],[enable external default callback functions [default=no]]), [],
     [SECP_SET_DEFAULT([enable_external_default_callbacks], [no], [no])])
@@ -435,6 +455,32 @@ if test x"$enable_external_default_callbacks" = x"yes"; then
   SECP_CONFIG_DEFINES="$SECP_CONFIG_DEFINES -DUSE_EXTERNAL_DEFAULT_CALLBACKS=1"
 fi
 
+if test x"$enable_module_generator" = x"yes"; then
+  AC_DEFINE(ENABLE_MODULE_GENERATOR, 1, [Define this symbol to enable the NUMS generator module])
+fi
+
+if test x"$enable_module_ed25519" = x"yes"; then
+  AC_DEFINE(ENABLE_MODULE_ED25519, 1, [Define this symbol to enable the ed25519 module])
+fi
+
+if test x"$enable_module_dleag" = x"yes"; then
+  AC_DEFINE(ENABLE_MODULE_DLEAG, 1, [Define this symbol to enable the DLEAG module])
+
+  if test x"$enable_module_generator" != x"yes"; then
+    AC_MSG_ERROR([DLEAG module requires the generator module. Use --enable-module-generator to allow.])
+  fi
+  if test x"$enable_module_ed25519" != x"yes"; then
+    AC_MSG_ERROR([DLEAG module requires the ed25519 module. Use --enable-module-ed25519 to allow.])
+  fi
+  if test x"$enable_module_recovery" != x"yes"; then
+    AC_MSG_ERROR([DLEAG module requires the recovery module. Use --enable-module-recovery to allow.])
+  fi
+fi
+
+if test x"$enable_module_ecdsaotves" = x"yes"; then
+  AC_DEFINE(ENABLE_MODULE_ECDSAOTVES, 1, [Define this symbol to enable the ECDSA OT-VES module])
+fi
+
 ###
 ### Check for --enable-experimental if necessary
 ###
@@ -442,6 +488,15 @@ fi
 if test x"$enable_experimental" = x"no"; then
   if test x"$set_asm" = x"arm32"; then
     AC_MSG_ERROR([ARM32 assembly is experimental. Use --enable-experimental to allow.])
+  fi
+  if test x"$enable_module_dleag" = x"yes"; then
+    AC_MSG_ERROR([DLEAG module is experimental. Use --enable-experimental to allow.])
+  fi
+  if test x"$enable_module_ecdsaotves" = x"yes"; then
+    AC_MSG_ERROR([ECDSA OT-VES module is experimental. Use --enable-experimental to allow.])
+  fi
+  if test x"$enable_module_ed25519" = x"yes"; then
+    AC_MSG_ERROR([ED25519 module is experimental. Use --enable-experimental to allow.])
   fi
 fi
 
@@ -475,6 +530,10 @@ AM_CONDITIONAL([ENABLE_MODULE_ELLSWIFT], [test x"$enable_module_ellswift" = x"ye
 AM_CONDITIONAL([USE_EXTERNAL_ASM], [test x"$enable_external_asm" = x"yes"])
 AM_CONDITIONAL([USE_ASM_ARM], [test x"$set_asm" = x"arm32"])
 AM_CONDITIONAL([BUILD_WINDOWS], [test "$build_windows" = "yes"])
+AM_CONDITIONAL([ENABLE_MODULE_ED25519], [test x"$enable_module_ed25519" = x"yes"])
+AM_CONDITIONAL([ENABLE_MODULE_GENERATOR], [test x"$enable_module_generator" = x"yes"])
+AM_CONDITIONAL([ENABLE_MODULE_DLEAG], [test x"$enable_module_dleag" = x"yes"])
+AM_CONDITIONAL([ENABLE_MODULE_ECDSAOTVES], [test x"$enable_module_ecdsaotves" = x"yes"])
 AC_SUBST(LIB_VERSION_CURRENT, _LIB_VERSION_CURRENT)
 AC_SUBST(LIB_VERSION_REVISION, _LIB_VERSION_REVISION)
 AC_SUBST(LIB_VERSION_AGE, _LIB_VERSION_AGE)
@@ -496,6 +555,10 @@ echo "  module extrakeys        = $enable_module_extrakeys"
 echo "  module schnorrsig       = $enable_module_schnorrsig"
 echo "  module musig            = $enable_module_musig"
 echo "  module ellswift         = $enable_module_ellswift"
+echo "  module ed25519          = $enable_module_ed25519"
+echo "  module generator        = $enable_module_generator"
+echo "  module dleag            = $enable_module_dleag"
+echo "  module ecdsaotves       = $enable_module_ecdsaotves"
 echo
 echo "  asm                     = $set_asm"
 echo "  ecmult window size      = $set_ecmult_window"

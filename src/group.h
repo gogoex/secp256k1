@@ -215,4 +215,10 @@ static void secp256k1_ge_verify(const secp256k1_ge *a);
 static void secp256k1_gej_verify(const secp256k1_gej *a);
 #define SECP256K1_GEJ_VERIFY(a) secp256k1_gej_verify(a)
 
+/** Set a group element (affine) equal to the point with the given X coordinate
+ *  and a Y coordinate that is a quadratic residue modulo p. The return value
+ *  is true if a coordinate with the given X coordinate exists.
+ */
+static int secp256k1_ge_set_xquad(secp256k1_ge *r, const secp256k1_fe *x);
+
 #endif /* SECP256K1_GROUP_H */

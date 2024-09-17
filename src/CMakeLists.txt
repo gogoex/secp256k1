@@ -45,6 +45,30 @@ if(SECP256K1_ENABLE_MODULE_ECDH)
   set_property(TARGET secp256k1 APPEND PROPERTY PUBLIC_HEADER ${PROJECT_SOURCE_DIR}/include/secp256k1_ecdh.h)
 endif()
 
+if(SECP256K1_ENABLE_MODULE_GENERATOR)
+  add_compile_definitions(ENABLE_MODULE_GENERATOR=1)
+  set_property(TARGET secp256k1 APPEND PROPERTY PUBLIC_HEADER ${PROJECT_SOURCE_DIR}/include/secp256k1_generator.h)
+endif()
+
+if(SECP256K1_ENABLE_MODULE_ED25519)
+  add_compile_definitions(ENABLE_MODULE_ED25519=1)
+  set_property(TARGET secp256k1 APPEND PROPERTY PUBLIC_HEADER ${PROJECT_SOURCE_DIR}/include/secp256k1_ed25519.h)
+endif()
+
+if(SECP256K1_ENABLE_MODULE_DLEAG)
+  if(NOT SECP256K1_ENABLE_MODULE_RECOVERY)
+    message(FATAL_ERROR "Module dependency error: Recovery module is required by the DLEAG module.")
+  endif()
+  add_compile_definitions(ENABLE_MODULE_DLEAG=1)
+  set_property(TARGET secp256k1 APPEND PROPERTY PUBLIC_HEADER ${PROJECT_SOURCE_DIR}/include/secp256k1_dleag.h)
+endif()
+
+if(SECP256K1_ENABLE_MODULE_ECDSAOTVES)
+  add_compile_definitions(ENABLE_MODULE_ECDSAOTVES=1)
+  set_property(TARGET secp256k1 APPEND PROPERTY PUBLIC_HEADER ${PROJECT_SOURCE_DIR}/include/secp256k1_ecdsaotves.h)
+endif()
+
+
 add_library(secp256k1_precomputed OBJECT EXCLUDE_FROM_ALL
   precomputed_ecmult.c
   precomputed_ecmult_gen.c
