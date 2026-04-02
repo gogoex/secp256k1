@@ -8,6 +8,8 @@
 extern "C" {
 #endif
 
+#define ECDSA_OTVES_SIZE 196
+
 /* skS    - secret signing key
  * pkE    - public encryption key
  * m      - message
