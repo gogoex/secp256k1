@@ -70,4 +70,28 @@ sodium_memcmp(const void *const b1_, const void *const b2_, size_t len)
     return (1 & ((d - 1) >> 8)) - 1;
 }
 
+/*
+ * sodium_compare() returns -1 if b1_ < b2_, 1 if b1_ > b2_ and 0 if b1_ == b2_
+ */
+int
+sodium_compare_be(const unsigned char *b1_, const unsigned char *b2_, size_t len)
+{
+    const volatile unsigned char *volatile b1 =
+        (const volatile unsigned char *volatile) b1_;
+    const volatile unsigned char *volatile b2 =
+        (const volatile unsigned char *volatile) b2_;
+    size_t                 i;
+    volatile unsigned char gt = 0U;
+    volatile unsigned char eq = 1U;
+    uint16_t               x1, x2;
+
+    for (i = 0; i < len; i++) {
+        x1 = b1[i];
+        x2 = b2[i];
+        gt |= (((unsigned int) x2 - (unsigned int) x1) >> 8) & eq;
+        eq &= (((unsigned int) (x2 ^ x1)) - 1) >> 8;
+    }
+    return (int) (gt + gt + eq) - 1;
+}
+
 #endif

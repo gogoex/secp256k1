@@ -27,7 +27,7 @@ void test_ed25519_infinity(void) {
     CHECK(secp256k1_memcmp_var(tmp, ed25519_gen2, 32) == 0);
 
     ge25519_p3_tobytes(tmp, &Q);
-    CHECK(_crypto_scalarmult_ed25519_is_inf(tmp) == 1);
+    CHECK(impl_crypto_scalarmult_ed25519_is_inf(tmp) == 1);
     CHECK(ge25519_frombytes(&Q, tmp) == 0);
     CHECK(crypto_core_ed25519_is_valid_point(tmp) == 0);
 }

@@ -92,14 +92,7 @@ void reverse32(unsigned char *out, const unsigned char *in) {
 }
 
 int ed25519_less_than_l_be(const unsigned char *in) {
-    int yes = 0;
-    int no = 0;
-    int i;
-    for (i = 31; i >= 0; i--) {
-        yes = in[i] < ed25519_sc_group_order_be[i];
-        no &= yes;
-    }
-    return yes;
+    return sodium_compare_be(in, ed25519_sc_group_order_be, 32) == -1 ? 1 : 0;
 }
 
 #endif
