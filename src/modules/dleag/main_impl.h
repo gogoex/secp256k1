@@ -60,12 +60,18 @@ static int secp256k1_ecdsa_sig_sign_gen(secp256k1_scalar *sigr, secp256k1_scalar
     return r_valid & s_valid;
 }
 
-static int secp256k1_ecdsa_sign_inner_gen(const secp256k1_context* ctx, secp256k1_scalar* r, secp256k1_scalar* s, int* recid, const unsigned char *msg32, const unsigned char *seckey, secp256k1_nonce_function noncefp, const void* noncedata, const secp256k1_gej *genj) {
+static int secp256k1_ecdsa_sign_inner_gen(const secp256k1_context* ctx, secp256k1_scalar* r, secp256k1_scalar* s, int* recid, const unsigned char *msg32, const unsigned char *seckey, secp256k1_nonce_function noncefp, const void* noncedata, const secp256k1_gej *genj, const unsigned char *gen33) {
     secp256k1_scalar sec, non, msg;
     int ret = 0;
     int is_sec_valid;
     unsigned char nonce32[32];
+    unsigned char nonce_msg[32];
+    secp256k1_sha256 h;
+    const secp256k1_hash_ctx *hash_ctx = secp256k1_get_hash_context(ctx);
     unsigned int count = 0;
+    /* Tagged so a signature over a custom generator can never share a nonce
+       with a plain-ECDSA signature for the same (key, message). */
+    const char *algo16 = "DLEAGECDSA/nonce";
     /* Default initialization here is important so we won't pass uninit values to the cmov in the end */
     *r = secp256k1_scalar_zero;
     *s = secp256k1_scalar_zero;
@@ -80,9 +86,15 @@ static int secp256k1_ecdsa_sign_inner_gen(const secp256k1_context* ctx, secp256k
     is_sec_valid = secp256k1_scalar_set_b32_seckey(&sec, seckey);
     secp256k1_scalar_cmov(&sec, &secp256k1_scalar_one, !is_sec_valid);
     secp256k1_scalar_set_b32(&msg, msg32, NULL);
+    /* Only the nonce derivation binds the generator; the signed message stays
+       msg32. noncedata is left free for the caller. */
+    secp256k1_sha256_initialize(&h);
+    secp256k1_sha256_write(hash_ctx, &h, msg32, 32);
+    secp256k1_sha256_write(hash_ctx, &h, gen33, 33);
+    secp256k1_sha256_finalize(hash_ctx, &h, nonce_msg);
     while (1) {
         int is_nonce_valid;
-        ret = !!noncefp(nonce32, msg32, seckey, NULL, (void*)noncedata, count);
+        ret = !!noncefp(nonce32, nonce_msg, seckey, (unsigned char*)algo16, (void*)noncedata, count);
         if (!ret) {
             break;
         }
@@ -120,6 +132,7 @@ int secp256k1_ecdsa_sign_recoverable_gen(const secp256k1_context* ctx, secp256k1
     secp256k1_scalar r, s;
     secp256k1_ge ge;
     secp256k1_gej genj;
+    unsigned char gen33[33];
     int ret, recid;
     VERIFY_CHECK(ctx != NULL);
     ARG_CHECK(msg32 != NULL);
@@ -127,10 +140,13 @@ int secp256k1_ecdsa_sign_recoverable_gen(const secp256k1_context* ctx, secp256k1
     ARG_CHECK(seckey != NULL);
     ARG_CHECK(gen != NULL);
 
+    if (!secp256k1_generator_serialize(ctx, gen33, gen)) {
+        return 0;
+    }
     secp256k1_generator_load(&ge, gen);
     secp256k1_gej_set_ge(&genj, &ge);
 
-    ret = secp256k1_ecdsa_sign_inner_gen(ctx, &r, &s, &recid, msg32, seckey, noncefp, noncedata, &genj);
+    ret = secp256k1_ecdsa_sign_inner_gen(ctx, &r, &s, &recid, msg32, seckey, noncefp, noncedata, &genj, gen33);
     secp256k1_ecdsa_recoverable_signature_save(signature, &r, &s, recid);
     return ret;
 }
@@ -240,6 +256,10 @@ SECP256K1_API int ed25519_sign_gen(
     crypto_hash_sha512(az, sc, 32);
     crypto_hash_sha512_init(&hs);
     crypto_hash_sha512_update(&hs, az + 32, 32);
+    /* Bind the generator: without it, two signatures over the same (key,
+       message) under different generators share a nonce and s1 - s2 =
+       (h1 - h2) * sc recovers the key. */
+    crypto_hash_sha512_update(&hs, gen, 32);
     crypto_hash_sha512_update(&hs, msg, mlen);
     crypto_hash_sha512_final(&hs, nonce);
 

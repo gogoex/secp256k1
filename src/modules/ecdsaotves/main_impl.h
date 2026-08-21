@@ -28,6 +28,7 @@ int ecdsaotves_enc_sign(
     secp256k1_nonce_function noncefp = secp256k1_nonce_function_default;
     size_t count = 0;
     unsigned char tmp32[32];
+    unsigned char pkE_hash[32];
     secp256k1_sha256 h;
     int rv = 1; /* Don't exit early, must reach memzero code */
     const secp256k1_hash_ctx *hash_ctx = secp256k1_get_hash_context(ctx);
@@ -46,14 +47,22 @@ int ecdsaotves_enc_sign(
     }
     secp256k1_gej_set_ge(&PE, &ge);
 
+    /* rfc6979 mixes exactly 32 bytes of nonce data, so pkE's last byte would
+       not bind. Hash it so all 33 bytes do. */
+    secp256k1_sha256_initialize(&h);
+    secp256k1_sha256_write(hash_ctx, &h, pkE, 33);
+    secp256k1_sha256_finalize(hash_ctx, &h, pkE_hash);
+
     /* Fail if the secret key is invalid. */
     if (!secp256k1_scalar_set_b32_seckey(&sec, skS)) {
         secp256k1_scalar_clear(&sec);
         return 0;
     }
-    /* Get nonce. */
+    /* Get nonce. Tagged and bound to pkE so it can never equal the plain-ECDSA
+       nonce for the same (key, message), nor repeat across encryption keys. */
     for (count = 0; count < 1000; ++count) {
-        if (!noncefp(tmp32, msg32, skS, NULL, NULL, count)) {
+        static const char *algo16 = "ECDSAOTVES/nonce";
+        if (!noncefp(tmp32, msg32, skS, (unsigned char*)algo16, pkE_hash, count)) {
             rv = 0;
             break;
         }
@@ -75,7 +84,7 @@ int ecdsaotves_enc_sign(
         /* Get DLEQ nonce. */
         for (count = 0; count < 1000; ++count) {
             static const char *algo16 = "DLEQ""DLEQ""DLEQ""DLEQ";
-            if (!noncefp(tmp32, msg32, skS, (unsigned char*)algo16, (unsigned char*)pkE, count)) {
+            if (!noncefp(tmp32, msg32, skS, (unsigned char*)algo16, pkE_hash, count)) {
                 rv = 0;
                 break;
             }
