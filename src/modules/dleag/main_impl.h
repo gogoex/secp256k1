@@ -22,6 +22,8 @@ static int secp256k1_ecdsa_sig_sign_gen(secp256k1_scalar *sigr, secp256k1_scalar
 
     int overflow = 0;
     int high;
+    int r_valid;
+    int s_valid;
 
     secp256k1_scalar_clear(&n);
     secp256k1_ecmult(&rp, genj, nonce, &n);
@@ -51,8 +53,11 @@ static int secp256k1_ecdsa_sig_sign_gen(secp256k1_scalar *sigr, secp256k1_scalar
     }
     /* P.x = order is on the curve, so technically sig->r could end up being zero, which would be an invalid signature.
      * This is cryptographically unreachable as hitting it requires finding the discrete log of P.x = N.
+     * Bitwise on purpose below: both sides must be evaluated.
      */
-    return !secp256k1_scalar_is_zero(sigr) & !secp256k1_scalar_is_zero(sigs);
+    r_valid = !secp256k1_scalar_is_zero(sigr);
+    s_valid = !secp256k1_scalar_is_zero(sigs);
+    return r_valid & s_valid;
 }
 
 static int secp256k1_ecdsa_sign_inner_gen(const secp256k1_context* ctx, secp256k1_scalar* r, secp256k1_scalar* s, int* recid, const unsigned char *msg32, const unsigned char *seckey, secp256k1_nonce_function noncefp, const void* noncedata, const secp256k1_gej *genj) {
