@@ -90,6 +90,12 @@ COMMON_LIB =
 endif
 noinst_LTLIBRARIES += $(COMMON_LIB)
 
+if ENABLE_MODULE_BLS12_381
+BLST_LIB = libblst.la
+else
+BLST_LIB =
+endif
+
 pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = libsecp256k1.pc
 
@@ -111,10 +117,10 @@ bench_SOURCES = src/bench.c
 bench_LDADD = libsecp256k1.la
 bench_CPPFLAGS = $(SECP_CONFIG_DEFINES)
 bench_internal_SOURCES = src/bench_internal.c
-bench_internal_LDADD = $(COMMON_LIB) $(PRECOMPUTED_LIB)
+bench_internal_LDADD = $(COMMON_LIB) $(PRECOMPUTED_LIB) $(BLST_LIB)
 bench_internal_CPPFLAGS = $(SECP_CONFIG_DEFINES)
 bench_ecmult_SOURCES = src/bench_ecmult.c
-bench_ecmult_LDADD = $(COMMON_LIB) $(PRECOMPUTED_LIB)
+bench_ecmult_LDADD = $(COMMON_LIB) $(PRECOMPUTED_LIB) $(BLST_LIB)
 bench_ecmult_CPPFLAGS = $(SECP_CONFIG_DEFINES)
 endif
 
@@ -124,7 +130,7 @@ TESTS += noverify_tests
 noinst_PROGRAMS += noverify_tests
 noverify_tests_SOURCES = src/tests.c
 noverify_tests_CPPFLAGS = $(SECP_CONFIG_DEFINES) $(TEST_DEFINES)
-noverify_tests_LDADD = $(COMMON_LIB) $(PRECOMPUTED_LIB)
+noverify_tests_LDADD = $(COMMON_LIB) $(PRECOMPUTED_LIB) $(BLST_LIB)
 noverify_tests_LDFLAGS = -static
 if !ENABLE_COVERAGE
 TESTS += tests
@@ -151,7 +157,7 @@ if !ENABLE_COVERAGE
 exhaustive_tests_CPPFLAGS += -DVERIFY
 endif
 # Note: do not include $(PRECOMPUTED_LIB) in exhaustive_tests (it uses runtime-generated tables).
-exhaustive_tests_LDADD = $(COMMON_LIB)
+exhaustive_tests_LDADD = $(COMMON_LIB) $(BLST_LIB)
 exhaustive_tests_LDFLAGS = -static
 TESTS += exhaustive_tests
 endif
@@ -329,4 +335,8 @@ endif
 
 if ENABLE_MODULE_ECDSAOTVES
 include src/modules/ecdsaotves/Makefile.am.include
+endif
+
+if ENABLE_MODULE_BLS12_381
+include src/modules/bls12_381/Makefile.am.include
 endif

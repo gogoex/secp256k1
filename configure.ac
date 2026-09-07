@@ -213,6 +213,11 @@ AC_ARG_ENABLE(module_ecdsaotves,
     [enable_module_ecdsaotves=$enableval],
     [enable_module_ecdsaotves=no])
 
+AC_ARG_ENABLE(module_bls12_381,
+    AS_HELP_STRING([--enable-module-bls12_381],[enable BLS12-381 curve module (default is no)]),
+    [enable_module_bls12_381=$enableval],
+    [enable_module_bls12_381=no])
+
 AC_ARG_ENABLE(external_default_callbacks,
     AS_HELP_STRING([--enable-external-default-callbacks],[enable external default callback functions [default=no]]), [],
     [SECP_SET_DEFAULT([enable_external_default_callbacks], [no], [no])])
@@ -481,6 +486,10 @@ if test x"$enable_module_ecdsaotves" = x"yes"; then
   AC_DEFINE(ENABLE_MODULE_ECDSAOTVES, 1, [Define this symbol to enable the ECDSA OT-VES module])
 fi
 
+if test x"$enable_module_bls12_381" = x"yes"; then
+  AC_DEFINE(ENABLE_MODULE_BLS12_381, 1, [Define this symbol to enable the BLS12-381 module])
+fi
+
 ###
 ### Check for --enable-experimental if necessary
 ###
@@ -497,6 +506,9 @@ if test x"$enable_experimental" = x"no"; then
   fi
   if test x"$enable_module_ed25519" = x"yes"; then
     AC_MSG_ERROR([ED25519 module is experimental. Use --enable-experimental to allow.])
+  fi
+  if test x"$enable_module_bls12_381" = x"yes"; then
+    AC_MSG_ERROR([BLS12-381 module is experimental. Use --enable-experimental to allow.])
   fi
 fi
 
@@ -534,6 +546,7 @@ AM_CONDITIONAL([ENABLE_MODULE_ED25519], [test x"$enable_module_ed25519" = x"yes"
 AM_CONDITIONAL([ENABLE_MODULE_GENERATOR], [test x"$enable_module_generator" = x"yes"])
 AM_CONDITIONAL([ENABLE_MODULE_DLEAG], [test x"$enable_module_dleag" = x"yes"])
 AM_CONDITIONAL([ENABLE_MODULE_ECDSAOTVES], [test x"$enable_module_ecdsaotves" = x"yes"])
+AM_CONDITIONAL([ENABLE_MODULE_BLS12_381], [test x"$enable_module_bls12_381" = x"yes"])
 AC_SUBST(LIB_VERSION_CURRENT, _LIB_VERSION_CURRENT)
 AC_SUBST(LIB_VERSION_REVISION, _LIB_VERSION_REVISION)
 AC_SUBST(LIB_VERSION_AGE, _LIB_VERSION_AGE)
@@ -559,6 +572,7 @@ echo "  module ed25519          = $enable_module_ed25519"
 echo "  module generator        = $enable_module_generator"
 echo "  module dleag            = $enable_module_dleag"
 echo "  module ecdsaotves       = $enable_module_ecdsaotves"
+echo "  module bls12_381        = $enable_module_bls12_381"
 echo
 echo "  asm                     = $set_asm"
 echo "  ecmult window size      = $set_ecmult_window"

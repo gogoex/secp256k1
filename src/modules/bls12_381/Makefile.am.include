@@ -1,0 +1,22 @@
+include_HEADERS += include/secp256k1_bls12_381.h
+noinst_HEADERS += src/modules/bls12_381/main_impl.h
+noinst_HEADERS += src/modules/bls12_381/tests_impl.h
+
+# blst is vendored C99 + assembly; build it as a separate convenience library
+# with its own relaxed flags (NOT the strict C89 SECP_CFLAGS), then link it in.
+noinst_LTLIBRARIES += libblst.la
+libblst_la_SOURCES = \
+	src/modules/bls12_381/blst/src/server.c \
+	src/modules/bls12_381/blst/build/assembly.S
+libblst_la_CPPFLAGS = -I$(top_srcdir)/src/modules/bls12_381/blst
+libblst_la_CFLAGS = -O2 -fno-builtin
+libblst_la_CCASFLAGS = -I$(top_srcdir)/src/modules/bls12_381/blst/build
+libsecp256k1_la_LIBADD += libblst.la
+
+# Distribute the vendored blst sources that server.c / assembly.S #include.
+EXTRA_DIST += \
+	src/modules/bls12_381/blst/bindings \
+	src/modules/bls12_381/blst/src \
+	src/modules/bls12_381/blst/build \
+	src/modules/bls12_381/blst/LICENSE \
+	src/modules/bls12_381/blst/PROVENANCE.md
