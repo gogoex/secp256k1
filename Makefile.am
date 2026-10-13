@@ -340,3 +340,7 @@ endif
 if ENABLE_MODULE_BLS12_381
 include src/modules/bls12_381/Makefile.am.include
 endif
+
+if ENABLE_MODULE_DLEAG_BLS
+include src/modules/dleag_bls/Makefile.am.include
+endif

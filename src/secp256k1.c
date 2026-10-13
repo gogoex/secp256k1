@@ -898,3 +898,7 @@ int secp256k1_tagged_sha256(const secp256k1_context* ctx, unsigned char *hash32,
 #ifdef ENABLE_MODULE_BLS12_381
 # include "modules/bls12_381/main_impl.h"
 #endif
+
+#ifdef ENABLE_MODULE_DLEAG_BLS
+# include "modules/dleag_bls/main_impl.h"
+#endif
