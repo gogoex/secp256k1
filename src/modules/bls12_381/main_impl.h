@@ -100,9 +100,10 @@ int secp256k1_bls_point_parse(secp256k1_bls_point *r, const unsigned char *in48)
     blst_p1_affine aff;
     VERIFY_CHECK(r != NULL);
     VERIFY_CHECK(in48 != NULL);
-    /* blst_p1_uncompress validates the encoding and that the point is on the
-       curve; affine_in_g1 additionally checks prime-order subgroup membership.
-       Neither rejects the identity, so we test is_inf ourselves below. */
+    /* blst_p1_uncompress validates the encoding, that the point is on the curve
+       and (in the vendored blst v0.3.17) prime-order subgroup membership.
+       affine_in_g1 repeats the subgroup check so we do not depend on that blst
+       behaviour. Neither rejects the identity, so we test is_inf ourselves below. */
     if (blst_p1_uncompress(&aff, in48) != BLST_SUCCESS ||
         !blst_p1_affine_in_g1(&aff)) {
         memset(r, 0, sizeof(*r));

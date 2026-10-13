@@ -20,6 +20,8 @@ static void test_dbls_proof_size(void) {
     CHECK(dbls_proof_size(1) == hdr + 64 + per_bit);
     CHECK(dbls_proof_size(252) == hdr + 64 + 252 * per_bit);
     CHECK(dbls_proof_size(252) == 52957);
+    CHECK(secp256k1_bls_dleag_size(1) == dbls_proof_size(1));
+    CHECK(secp256k1_bls_dleag_size(252) == 52957);
 
     /* prove accepts a buffer of exactly dbls_proof_size bytes and rejects one byte less. */
     {
@@ -926,6 +928,39 @@ static void test_dbls_verify(void) {
     }
 }
 
+static void test_dbls_verify_bls_point(void) {
+    /* 2*G, computed independently (pure Python affine arithmetic). */
+    static const unsigned char g2[48] = {
+        0xa5,0x72,0xcb,0xea,0x90,0x4d,0x67,0x46,0x88,0x08,0xc8,0xeb,0x50,0xa9,0x45,0x0c,
+        0x97,0x21,0xdb,0x30,0x91,0x28,0x01,0x25,0x43,0x90,0x2d,0x0a,0xc3,0x58,0xa6,0x2a,
+        0xe2,0x8f,0x75,0xbb,0x8f,0x1c,0x7c,0x42,0xc3,0x9a,0x8c,0x55,0x29,0xbf,0x0f,0x4e
+    };
+    static unsigned char proof[52957];
+    unsigned char key[32], p[48];
+    size_t len;
+
+    /* Valid: G, 2G, and the G1 pubkey embedded in a real proof. */
+    CHECK(secp256k1_bls_dleag_verify_bls_point(CTX, secp256k1_bls_gen_a) == 1);
+    CHECK(secp256k1_bls_dleag_verify_bls_point(CTX, g2) == 1);
+    dbls_test_make_proof(proof, &len, key, 64);
+    CHECK(secp256k1_bls_dleag_verify_bls_point(CTX, proof + 33) == 1);
+
+    /* Infinity. */
+    memset(p, 0, 48); p[0] = 0xc0;
+    CHECK(secp256k1_bls_dleag_verify_bls_point(CTX, p) == 0);
+    /* Garbage. */
+    memset(p, 0xff, 48);
+    CHECK(secp256k1_bls_dleag_verify_bls_point(CTX, p) == 0);
+    /* G without the compression flag. */
+    memcpy(p, secp256k1_bls_gen_a, 48); p[0] &= 0x7f;
+    CHECK(secp256k1_bls_dleag_verify_bls_point(CTX, p) == 0);
+    /* (0, +-2): on the curve (0^3 + 4 = 2^2) but of order 3, not in the subgroup. */
+    memset(p, 0, 48); p[0] = 0x80;
+    CHECK(secp256k1_bls_dleag_verify_bls_point(CTX, p) == 0);
+    p[0] = 0xa0;
+    CHECK(secp256k1_bls_dleag_verify_bls_point(CTX, p) == 0);
+}
+
 /* --- Test registry --- */
 static const struct tf_test_entry tests_dleag_bls[] = {
     CASE1(test_dbls_proof_size),
@@ -938,6 +973,7 @@ static const struct tf_test_entry tests_dleag_bls[] = {
     CASE1(test_dbls_prove),
     CASE1(test_dbls_bls_decode_check_scalar),
     CASE1(test_dbls_verify),
+    CASE1(test_dbls_verify_bls_point),
 };
 
 #endif
