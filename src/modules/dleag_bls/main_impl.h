@@ -241,6 +241,11 @@ static int dbls_bls_sign_gen(
     return 1;
 }
 
+SECP256K1_INLINE static void dbls_ge_neg_inplace(secp256k1_ge *r) {
+    secp256k1_fe_normalize_weak(&r->y);
+    secp256k1_fe_negate(&r->y, &r->y, 1);
+}
+
 SECP256K1_INLINE static int dbls_raise_point_encode(const secp256k1_context *ctx, unsigned char *out, secp256k1_gej *P, const secp256k1_scalar *ss) {
     secp256k1_gej ptj;
     secp256k1_ecmult(&ptj, P, ss, &secp256k1_scalar_zero);
@@ -511,11 +516,11 @@ int secp256k1_bls_dleag_prove(
             /* J = HG * a[i * 2 + j] - (C_G[i] - G) * ej */
             secp256k1_ecmult(&spj1, &gej_gen_s_b, &sc_a[i * 2 + j], &secp256k1_scalar_zero);
             secp256k1_ge_set_gej(&s_pt, &gej_gen_s_a);
-            secp256k1_ge_neg_inplace(&s_pt);
+            dbls_ge_neg_inplace(&s_pt);
             secp256k1_gej_add_ge(&spj2, &C_G[i], &s_pt);
             secp256k1_ecmult(&spj2, &spj2, &ej, &secp256k1_scalar_zero);
             secp256k1_ge_set_gej(&s_pt, &spj2);
-            secp256k1_ge_neg_inplace(&s_pt);
+            dbls_ge_neg_inplace(&s_pt);
             secp256k1_gej_add_ge(&spj2, &spj1, &s_pt);
             if (!secp256k1_gej_serialize(ctx, bJ, &spj2)) {
                 return 0;
@@ -557,7 +562,7 @@ int secp256k1_bls_dleag_prove(
             secp256k1_ecmult(&spj1, &gej_gen_s_b, &sc_a[i * 2 + j], &secp256k1_scalar_zero);
             secp256k1_ecmult(&spj2, &C_G[i], &ej, &secp256k1_scalar_zero);
             secp256k1_ge_set_gej(&s_pt, &spj2);
-            secp256k1_ge_neg_inplace(&s_pt);
+            dbls_ge_neg_inplace(&s_pt);
             secp256k1_gej_add_ge(&spj2, &spj1, &s_pt);
             if (!secp256k1_gej_serialize(ctx, bJ, &spj2)) {
                 return 0;
