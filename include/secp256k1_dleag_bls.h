@@ -43,6 +43,20 @@ SECP256K1_API int secp256k1_bls_dleag_prove(
     const unsigned char *nonce
 ) SECP256K1_ARG_NONNULL(1) SECP256K1_ARG_NONNULL(2) SECP256K1_ARG_NONNULL(3) SECP256K1_ARG_NONNULL(4) SECP256K1_ARG_NONNULL(6);
 
+/* Verify a proof.
+ *
+ * Returns: 1 if the proof is valid for n_bits, 0 otherwise.
+ * In:   proof:     proof to verify (cannot be NULL)
+ *       proof_len: length of proof; must equal the size for n_bits
+ *       n_bits:    number of bits the proof must cover (1..252)
+ */
+SECP256K1_API SECP256K1_WARN_UNUSED_RESULT int secp256k1_bls_dleag_verify(
+    const secp256k1_context *ctx,
+    const unsigned char *proof,
+    size_t proof_len,
+    size_t n_bits
+) SECP256K1_ARG_NONNULL(1) SECP256K1_ARG_NONNULL(2);
+
 #ifdef __cplusplus
 }
 #endif

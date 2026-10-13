@@ -140,6 +140,90 @@ static int dbls_ecdsa_sign_gen(const secp256k1_context* ctx, unsigned char *sig6
     return ret;
 }
 
+static int dbls_ecdsa_sig_verify_gen(const secp256k1_scalar *sigr, const secp256k1_scalar *sigs, const secp256k1_ge *pubkey, const secp256k1_scalar *message, const secp256k1_gej *genj) {
+    unsigned char c[32];
+    secp256k1_scalar sn, u1, u2;
+    secp256k1_fe xr;
+    secp256k1_gej pubkeyj;
+    secp256k1_gej pr, qr;
+    secp256k1_ge ge;
+
+    if (secp256k1_scalar_is_zero(sigr) || secp256k1_scalar_is_zero(sigs)) {
+        return 0;
+    }
+
+    secp256k1_scalar_inverse_var(&sn, sigs);
+    secp256k1_scalar_mul(&u1, &sn, message);
+    secp256k1_scalar_mul(&u2, &sn, sigr);
+    secp256k1_gej_set_ge(&pubkeyj, pubkey);
+    /*secp256k1_ecmult(ctx, &pr, &pubkeyj, &u2, &u1);*/
+    secp256k1_ecmult(&pr, &pubkeyj, &u2, &secp256k1_scalar_zero);
+    secp256k1_ecmult(&qr, genj, &u1, &secp256k1_scalar_zero);
+    secp256k1_ge_set_gej(&ge, &qr);
+    secp256k1_gej_add_ge(&pr, &pr, &ge);
+    if (secp256k1_gej_is_infinity(&pr)) {
+        return 0;
+    }
+
+    secp256k1_scalar_get_b32(c, sigr);
+    /* r < n < p, so this cannot fail; unlike set_b32_mod it yields a normalized
+     * element, as required by secp256k1_fe_cmp_var below (matches upstream). */
+    (void)secp256k1_fe_set_b32_limit(&xr, c);
+
+    /** We now have the recomputed R point in pr, and its claimed x coordinate (modulo n)
+     *  in xr. Naively, we would extract the x coordinate from pr (requiring a inversion modulo p),
+     *  compute the remainder modulo n, and compare it to xr. However:
+     *
+     *        xr == X(pr) mod n
+     *    <=> exists h. (xr + h * n < p && xr + h * n == X(pr))
+     *    [Since 2 * n > p, h can only be 0 or 1]
+     *    <=> (xr == X(pr)) || (xr + n < p && xr + n == X(pr))
+     *    [In Jacobian coordinates, X(pr) is pr.x / pr.z^2 mod p]
+     *    <=> (xr == pr.x / pr.z^2 mod p) || (xr + n < p && xr + n == pr.x / pr.z^2 mod p)
+     *    [Multiplying both sides of the equations by pr.z^2 mod p]
+     *    <=> (xr * pr.z^2 mod p == pr.x) || (xr + n < p && (xr + n) * pr.z^2 mod p == pr.x)
+     *
+     *  Thus, we can avoid the inversion, but we have to check both cases separately.
+     *  secp256k1_gej_eq_x implements the (xr * pr.z^2 mod p == pr.x) test.
+     */
+    if (secp256k1_gej_eq_x_var(&xr, &pr)) {
+        /* xr * pr.z^2 mod p == pr.x, so the signature is valid. */
+        return 1;
+    }
+    if (secp256k1_fe_cmp_var(&xr, &secp256k1_ecdsa_const_p_minus_order) >= 0) {
+        /* xr + n >= p, so we can skip testing the second case. */
+        return 0;
+    }
+    secp256k1_fe_add(&xr, &secp256k1_ecdsa_const_order_as_fe);
+    if (secp256k1_gej_eq_x_var(&xr, &pr)) {
+        /* (xr + n) * pr.z^2 mod p == pr.x, so the signature is valid. */
+        return 1;
+    }
+    return 0;
+}
+
+static int dbls_ecdsa_verify_gen(const secp256k1_context* ctx, const secp256k1_ecdsa_signature *sig, const unsigned char *msg32, const secp256k1_pubkey *pubkey, const secp256k1_generator *gen) {
+    secp256k1_ge q;
+    secp256k1_scalar r, s;
+    secp256k1_scalar m;
+    secp256k1_ge ge;
+    secp256k1_gej genj;
+    VERIFY_CHECK(ctx != NULL);
+    ARG_CHECK(msg32 != NULL);
+    ARG_CHECK(sig != NULL);
+    ARG_CHECK(pubkey != NULL);
+    ARG_CHECK(gen != NULL);
+
+    secp256k1_generator_load(&ge, gen);
+    secp256k1_gej_set_ge(&genj, &ge);
+
+    secp256k1_scalar_set_b32(&m, msg32, NULL);
+    secp256k1_ecdsa_signature_load(ctx, &r, &s, sig);
+    return (!secp256k1_scalar_is_high(&s) &&
+            secp256k1_pubkey_load(ctx, &q, pubkey) &&
+            dbls_ecdsa_sig_verify_gen(&r, &s, &q, &m, &genj));
+}
+
 SECP256K1_INLINE static void dbls_get_sc_secp256k1(secp256k1_scalar *sc, const secp256k1_hash_ctx *hash_ctx, secp256k1_rfc6979_hmac_sha256 *rng) {
     int overflow = 0;
     unsigned char tmp[32];
@@ -175,6 +259,15 @@ static void dbls_bls_hash_to_scalar(const secp256k1_hash_ctx *hash_ctx, secp256k
         secp256k1_sha256_write(hash_ctx, &hs, buf, 32);
         secp256k1_sha256_finalize(hash_ctx, &hs, buf);
     }
+}
+
+/* Parse a ring response b: big-endian, must be < r and >= 2^16
+ * (mirrors ed25519_decode_check_scalar, which rejects top-30-zero-byte values). */
+SECP256K1_INLINE static int dbls_bls_decode_check_scalar(secp256k1_bls_scalar *sc, const unsigned char *p) {
+    unsigned char acc = 0;
+    size_t i;
+    for (i = 0; i < 30; ++i) acc |= p[i];
+    return acc != 0 && secp256k1_bls_scalar_set_b32(sc, p);
 }
 
 static const char dbls_bls_nonce_tag[] = "DLEAG/BLS/nonce";
@@ -239,6 +332,42 @@ static int dbls_bls_sign_gen(
     secp256k1_memclear_explicit(buf, sizeof(buf));
     secp256k1_rfc6979_hmac_sha256_clear(&rng);
     return 1;
+}
+
+/* Verify a Schnorr signature from dbls_bls_sign_gen: accept iff
+ * s*gen == R + e*P, e = hash_to_scalar(SHA256(R || P || msg)). */
+static int dbls_bls_verify_gen(
+    const secp256k1_hash_ctx *hash_ctx,
+    const unsigned char *sig,       /* 80 bytes = R(48) || s(32) */
+    const unsigned char *msg,
+    size_t mlen,
+    const unsigned char *pubkey,    /* 48-byte compressed G1 point */
+    const unsigned char *gen) {     /* 48-byte compressed G1 point */
+    secp256k1_bls_point genp, P, R, lhs, rhs, eP;
+    secp256k1_bls_scalar s, e;
+    secp256k1_sha256 hs;
+    unsigned char buf[32], lhs48[48], rhs48[48];
+
+    if (!secp256k1_bls_point_parse(&genp, gen) ||
+        !secp256k1_bls_point_parse(&P, pubkey) ||
+        !secp256k1_bls_point_parse(&R, sig) ||
+        !secp256k1_bls_scalar_set_b32(&s, sig + 48)) {
+        return 0;
+    }
+
+    secp256k1_sha256_initialize(&hs);
+    secp256k1_sha256_write(hash_ctx, &hs, sig, 48);
+    secp256k1_sha256_write(hash_ctx, &hs, pubkey, 48);
+    secp256k1_sha256_write(hash_ctx, &hs, msg, mlen);
+    secp256k1_sha256_finalize(hash_ctx, &hs, buf);
+    dbls_bls_hash_to_scalar(hash_ctx, &e, buf);
+
+    secp256k1_bls_point_mul(&lhs, &genp, &s);
+    secp256k1_bls_point_mul(&eP, &P, &e);
+    secp256k1_bls_point_add(&rhs, &R, &eP);
+    secp256k1_bls_point_serialize(lhs48, &lhs);
+    secp256k1_bls_point_serialize(rhs48, &rhs);
+    return secp256k1_memcmp_var(lhs48, rhs48, 48) == 0;
 }
 
 SECP256K1_INLINE static void dbls_ge_neg_inplace(secp256k1_ge *r) {
@@ -622,6 +751,227 @@ int secp256k1_bls_dleag_prove(
         *proof_len += 32;
     }
     VERIFY_CHECK(*proof_len == dbls_proof_size(n_bits));
+
+    return 1;
+}
+
+
+int secp256k1_bls_dleag_verify(
+    const secp256k1_context *ctx,
+    const unsigned char *proof,
+    size_t proof_len,
+    size_t n_bits) {
+    const secp256k1_generator *gen_s_a = &secp256k1_generator_const_g;
+    const secp256k1_generator *gen_s_b = &secp256k1_generator_const_h;
+    const unsigned char *gen_bls_a = secp256k1_bls_gen_a;
+    const unsigned char *gen_bls_b = secp256k1_bls_gen_b;
+    size_t i, j;
+    int overflow;
+    secp256k1_gej gej_gen_s_a, gej_gen_s_b;
+    secp256k1_bls_point pt_gen_bls_a, pt_gen_bls_b;
+    secp256k1_ge s_pt;
+    secp256k1_gej C_G[256];
+    secp256k1_bls_point C_B[256];
+    secp256k1_sha256 hash_state, hash_J, hash_K;
+    secp256k1_gej sumG;
+    secp256k1_bls_point sumB;
+    unsigned char tmp_bytes[48];
+    unsigned char preimage_hash[32], J_hash[32], K_hash[32];
+    const unsigned char *pJ_hash, *pK_hash, *p_proof_a0, *p_proof_a1, *p_proof_b0, *p_proof_b1;
+    secp256k1_gej spj1, spj2;
+    secp256k1_bls_point ep1, ep2, ep3;
+    size_t ofs = 0;
+    const secp256k1_hash_ctx *hash_ctx = secp256k1_get_hash_context(ctx);
+
+    VERIFY_CHECK(ctx != NULL);
+    ARG_CHECK(proof != NULL);
+    ARG_CHECK(n_bits >= 1 && n_bits <= 252);
+
+    if (proof_len != dbls_proof_size(n_bits)) {
+        return 0;
+    }
+
+    secp256k1_generator_load(&s_pt, gen_s_a);
+    secp256k1_gej_set_ge(&gej_gen_s_a, &s_pt);
+    secp256k1_generator_load(&s_pt, gen_s_b);
+    secp256k1_gej_set_ge(&gej_gen_s_b, &s_pt);
+
+    if (!secp256k1_bls_point_parse(&pt_gen_bls_a, gen_bls_a) ||
+        !secp256k1_bls_point_parse(&pt_gen_bls_b, gen_bls_b)) {
+        return 0;
+    }
+
+    /* Verify points are unblinded */
+    {
+    secp256k1_pubkey spk;
+    secp256k1_ecdsa_signature sig;
+    secp256k1_sha256_initialize(&hash_state);
+    secp256k1_sha256_write(hash_ctx, &hash_state, (const unsigned char*) dbls_sig_message, strlen(dbls_sig_message));
+    secp256k1_sha256_finalize(hash_ctx, &hash_state, preimage_hash);
+    if (!secp256k1_ec_pubkey_parse(ctx, &spk, proof, 33) ||
+        !secp256k1_ecdsa_signature_parse_compact(ctx, &sig, proof + 81) ||
+        !dbls_ecdsa_verify_gen(ctx, &sig, preimage_hash, &spk, gen_s_a)) {
+        return 0;
+    }
+    if (!dbls_bls_verify_gen(hash_ctx, proof + 81 + 64, preimage_hash, 32, proof + 33, gen_bls_a)) {
+        return 0;
+    }
+    }
+
+    /* Start the preimage hash */
+    secp256k1_sha256_initialize(&hash_state);
+    secp256k1_sha256_write(hash_ctx, &hash_state, proof, 33);
+    secp256k1_sha256_write(hash_ctx, &hash_state, proof + 33, 48);
+
+    /* Verify the weighted commitments sum to the points */
+    secp256k1_gej_set_infinity(&sumG);
+    secp256k1_bls_point_set_infinity(&sumB);
+
+    ofs = 33 + 48 + 64 + 80;
+    for (i = 0; i < n_bits; ++i) {
+        secp256k1_ge ge;
+        secp256k1_gej sQ;
+        secp256k1_bls_point eQ;
+        secp256k1_scalar scs;
+        secp256k1_bls_scalar sce;
+        const unsigned char *sp = proof + ofs + i * 33;
+        const unsigned char *ep = proof + ofs + n_bits * 33 + i * 48;
+        if (!secp256k1_decode_check_point(&C_G[i], sp) ||
+            !secp256k1_bls_point_parse(&C_B[i], ep)) {
+            return 0;
+        }
+        secp256k1_sha256_write(hash_ctx, &hash_state, sp, 33);
+        secp256k1_sha256_write(hash_ctx, &hash_state, ep, 48);
+
+        /* sumG += C_G[i] * 2^i */
+        /* sumB += C_B[i] * 2^i */
+        if (i == 0) {
+            secp256k1_ge_set_gej(&ge, &C_G[i]);
+            eQ = C_B[i];
+        } else {
+            secp256k1_scalar_clear(&scs);
+            secp256k1_scalar_cadd_bit(&scs, i, 1);
+            secp256k1_ecmult(&sQ, &C_G[i], &scs, &secp256k1_scalar_zero);
+            secp256k1_ge_set_gej(&ge, &sQ);
+
+            memset(tmp_bytes, 0, 32);
+            tmp_bytes[31 - (i / 8)] |= (1 << (i % 8));
+            if (!secp256k1_bls_scalar_set_b32(&sce, tmp_bytes)) {
+                return 0;
+            }
+            secp256k1_bls_point_mul(&eQ, &C_B[i], &sce);
+        }
+
+        secp256k1_gej_add_ge(&sumG, &sumG, &ge);
+
+        secp256k1_bls_point_add(&ep1, &sumB, &eQ);
+        sumB = ep1;
+    }
+
+    /* A malicious proof can make the commitments sum to infinity, on which
+     * secp256k1_gej_serialize would abort; reject it first. */
+    if (secp256k1_gej_is_infinity(&sumG) ||
+        !secp256k1_gej_serialize(ctx, tmp_bytes, &sumG) ||
+        secp256k1_memcmp_var(proof, tmp_bytes, 33) != 0) {
+        return 0;
+    }
+
+    secp256k1_bls_point_serialize(tmp_bytes, &sumB);
+    if (secp256k1_memcmp_var(proof + 33, tmp_bytes, 48) != 0) {
+        return 0;
+    }
+
+    secp256k1_sha256_finalize(hash_ctx, &hash_state, preimage_hash);
+
+    secp256k1_sha256_initialize(&hash_J);
+    secp256k1_sha256_initialize(&hash_K);
+
+    pJ_hash = proof + ofs + (33 + 48) * n_bits;
+    pK_hash = pJ_hash + 32;
+
+    p_proof_a0 = pJ_hash + 64;
+    p_proof_a1 = p_proof_a0 + 32 * n_bits;
+    p_proof_b0 = p_proof_a1 + 32 * n_bits;
+    p_proof_b1 = p_proof_b0 + 32 * n_bits;
+
+    for (i = 0; i < n_bits; ++i) {
+        secp256k1_scalar ej, sc_a;
+        secp256k1_bls_scalar ek, sc_b;
+        unsigned char bJ[33];
+        unsigned char bK[48];
+        dbls_dleag_hash(tmp_bytes, hash_ctx, preimage_hash, pJ_hash, 32, pK_hash, 32, i, 0);
+        if (!dbls_hash_sc_secp256k1(&ej, hash_ctx, tmp_bytes)) {
+            return 0;
+        }
+        dbls_bls_hash_to_scalar(hash_ctx, &ek, tmp_bytes);
+        for (j = 0; j < 2; ++j) {
+            secp256k1_scalar_set_b32(&sc_a, (j == 0 ? p_proof_a0 : p_proof_a1) + 32 * i, &overflow);
+            if (overflow || secp256k1_scalar_is_zero(&sc_a)) {
+                return 0;
+            }
+
+            if (!dbls_bls_decode_check_scalar(&sc_b, (j == 0 ? p_proof_b0 : p_proof_b1) + 32 * i)) {
+                return 0;
+            }
+            if (j == 0) {
+                /* J = HG * a[i * 2 + j] - C_G[i] * ej */
+                secp256k1_ecmult(&spj1, &gej_gen_s_b, &sc_a, &secp256k1_scalar_zero);
+                secp256k1_ecmult(&spj2, &C_G[i], &ej, &secp256k1_scalar_zero);
+                secp256k1_ge_set_gej(&s_pt, &spj2);
+                dbls_ge_neg_inplace(&s_pt);
+                secp256k1_gej_add_ge_var(&spj2, &spj1, &s_pt, NULL);
+                if (secp256k1_gej_is_infinity(&spj2) ||
+                    !secp256k1_gej_serialize(ctx, bJ, &spj2)) {
+                    return 0;
+                }
+
+                /* K = HB * b[i * 2 + j] - C_B[i] * ek */
+                secp256k1_bls_point_mul(&ep1, &pt_gen_bls_b, &sc_b);
+                secp256k1_bls_point_mul(&ep2, &C_B[i], &ek);
+                secp256k1_bls_point_sub(&ep3, &ep1, &ep2);
+                secp256k1_bls_point_serialize(bK, &ep3);
+
+                /* Get new scalars for next iteration, j == 1 */
+                dbls_dleag_hash(tmp_bytes, hash_ctx, preimage_hash, bJ, 33, bK, 48, i, j + 1);
+                if (!dbls_hash_sc_secp256k1(&ej, hash_ctx, tmp_bytes)) {
+                    return 0;
+                }
+                dbls_bls_hash_to_scalar(hash_ctx, &ek, tmp_bytes);
+            } else {
+                /* J = HG * a[i * 2 + j] - (C_G[i] - G) * ej */
+                secp256k1_ecmult(&spj1, &gej_gen_s_b, &sc_a, &secp256k1_scalar_zero);
+                secp256k1_ge_set_gej(&s_pt, &gej_gen_s_a);
+                dbls_ge_neg_inplace(&s_pt);
+                secp256k1_gej_add_ge_var(&spj2, &C_G[i], &s_pt, NULL);   /* may be infinity if C_G[i] == G */
+                secp256k1_ecmult(&spj2, &spj2, &ej, &secp256k1_scalar_zero);
+                secp256k1_ge_set_gej(&s_pt, &spj2);
+                dbls_ge_neg_inplace(&s_pt);
+                secp256k1_gej_add_ge_var(&spj2, &spj1, &s_pt, NULL);
+                if (secp256k1_gej_is_infinity(&spj2) ||
+                    !secp256k1_gej_serialize(ctx, bJ, &spj2)) {
+                    return 0;
+                }
+
+                /* K = HB * b[i * 2 + j] - (C_B[i] - B) * ek */
+                secp256k1_bls_point_mul(&ep1, &pt_gen_bls_b, &sc_b);
+                secp256k1_bls_point_sub(&ep2, &C_B[i], &pt_gen_bls_a);
+                secp256k1_bls_point_mul(&ep3, &ep2, &ek);
+                secp256k1_bls_point_sub(&ep2, &ep1, &ep3);
+                secp256k1_bls_point_serialize(bK, &ep2);
+            }
+        }
+        secp256k1_sha256_write(hash_ctx, &hash_J, bJ, 33);
+        secp256k1_sha256_write(hash_ctx, &hash_K, bK, 48);
+    }
+    secp256k1_sha256_finalize(hash_ctx, &hash_J, J_hash);
+    secp256k1_sha256_finalize(hash_ctx, &hash_K, K_hash);
+
+    if (secp256k1_memcmp_var(J_hash, pJ_hash, 32) != 0) {
+        return 0;
+    }
+    if (secp256k1_memcmp_var(K_hash, pK_hash, 32) != 0) {
+        return 0;
+    }
 
     return 1;
 }

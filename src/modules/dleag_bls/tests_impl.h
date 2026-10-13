@@ -714,6 +714,218 @@ static void test_dbls_prove(void) {
     dbls_test_check_proof(proof, key2, 17);
 }
 
+/* The b >= 2^16 floor is not observable through verify (a modified b breaks
+ * the ring anyway), so test the parser directly at its boundaries. */
+static void test_dbls_bls_decode_check_scalar(void) {
+    unsigned char b[32];
+    secp256k1_bls_scalar sc, exp;
+
+    memset(b, 0, 32);
+    CHECK(dbls_bls_decode_check_scalar(&sc, b) == 0);              /* 0 */
+    b[30] = 0xff; b[31] = 0xff;
+    CHECK(dbls_bls_decode_check_scalar(&sc, b) == 0);              /* 2^16 - 1 */
+    memset(b, 0, 32); b[29] = 0x01;
+    CHECK(dbls_bls_decode_check_scalar(&sc, b) == 1);              /* 2^16 */
+    CHECK(secp256k1_bls_scalar_set_b32(&exp, b) == 1);
+    CHECK(bls_sc_eq(&sc, &exp));
+    memcpy(b, bls_fr_order_be, 32); b[31] -= 1;
+    CHECK(dbls_bls_decode_check_scalar(&sc, b) == 1);              /* r - 1 */
+    CHECK(dbls_bls_decode_check_scalar(&sc, bls_fr_order_be) == 0); /* r */
+    memset(b, 0xff, 32);
+    CHECK(dbls_bls_decode_check_scalar(&sc, b) == 0);              /* 2^256 - 1 */
+}
+
+/* Proof layout offsets for n_bits. */
+#define DBLS_OFS_CG(i)     (225 + 33 * (i))
+#define DBLS_OFS_CB(n, i)  (225 + 33 * (n) + 48 * (i))
+#define DBLS_OFS_JH(n)     (225 + 81 * (n))
+#define DBLS_OFS_A0(n, i)  (225 + 81 * (n) + 64 + 32 * (i))
+#define DBLS_OFS_A1(n, i)  (DBLS_OFS_A0(n, i) + 32 * (n))
+#define DBLS_OFS_B0(n, i)  (DBLS_OFS_A1(n, i) + 32 * (n))
+#define DBLS_OFS_B1(n, i)  (DBLS_OFS_B0(n, i) + 32 * (n))
+
+static void dbls_test_make_proof(unsigned char *proof, size_t *len, unsigned char *key, size_t n_bits) {
+    unsigned char nonce[32];
+    dbls_test_key(key, n_bits);
+    testrand256(nonce);
+    *len = dbls_proof_size(n_bits);
+    CHECK(secp256k1_bls_dleag_prove(CTX, proof, len, key, n_bits, nonce) == 1);
+}
+
+static void dbls_test_load_cg(secp256k1_ge *ge, const unsigned char *proof, size_t i) {
+    CHECK(secp256k1_eckey_pubkey_parse(ge, proof + DBLS_OFS_CG(i), 33) == 1);
+}
+
+static void dbls_test_store_cg(unsigned char *proof, size_t i, const secp256k1_gej *pj) {
+    secp256k1_gej tj = *pj;
+    secp256k1_ge ge;
+    CHECK(!secp256k1_gej_is_infinity(&tj));
+    secp256k1_ge_set_gej(&ge, &tj);
+    secp256k1_fe_normalize_var(&ge.x);
+    secp256k1_fe_normalize_var(&ge.y);
+    secp256k1_eckey_pubkey_serialize33(&ge, proof + DBLS_OFS_CG(i));
+}
+
+/* Malicious rewrite that keeps sum(2^i * C_G[i]) unchanged: set C_G[0] = T
+ * and compensate in C_G[1] with D = (T - C_G[0]) / 2, i.e. C_G[1] -= D. */
+static void dbls_test_rebalance_cg(unsigned char *proof, const secp256k1_gej *T) {
+    secp256k1_ge c0, c1;
+    secp256k1_gej d, t;
+    secp256k1_scalar two, inv2;
+
+    dbls_test_load_cg(&c0, proof, 0);
+    dbls_test_load_cg(&c1, proof, 1);
+    secp256k1_ge_neg(&c0, &c0);
+    secp256k1_gej_add_ge_var(&d, T, &c0, NULL);               /* T - C_G[0] */
+    secp256k1_scalar_set_int(&two, 2);
+    secp256k1_scalar_inverse_var(&inv2, &two);
+    secp256k1_ecmult(&d, &d, &inv2, &secp256k1_scalar_zero);  /* D */
+    secp256k1_gej_neg(&d, &d);
+    secp256k1_gej_add_ge_var(&t, &d, &c1, NULL);              /* C_G[1] - D */
+    dbls_test_store_cg(proof, 0, T);
+    dbls_test_store_cg(proof, 1, &t);
+}
+
+/* Recompute the verifier's preimage hash over (possibly modified) proof bytes. */
+static void dbls_test_preimage(unsigned char *out32, const unsigned char *proof, size_t n_bits) {
+    const secp256k1_hash_ctx *hash_ctx = secp256k1_get_hash_context(CTX);
+    secp256k1_sha256 h;
+    size_t i;
+    secp256k1_sha256_initialize(&h);
+    secp256k1_sha256_write(hash_ctx, &h, proof, 33 + 48);
+    for (i = 0; i < n_bits; ++i) {
+        secp256k1_sha256_write(hash_ctx, &h, proof + DBLS_OFS_CG(i), 33);
+        secp256k1_sha256_write(hash_ctx, &h, proof + DBLS_OFS_CB(n_bits, i), 48);
+    }
+    secp256k1_sha256_finalize(hash_ctx, &h, out32);
+}
+
+static void test_dbls_verify(void) {
+    static unsigned char proof[52957], p2[52957];
+    unsigned char key[32];
+    size_t len, n, i, t;
+    size_t n_list[3];
+    secp256k1_gej T;
+    secp256k1_ge H;
+    secp256k1_scalar c, e0, a;
+
+    n_list[0] = 252; n_list[1] = 64; n_list[2] = 17;
+
+    /* V1. Honest proofs verify. */
+    for (t = 0; t < 3; ++t) {
+        dbls_test_make_proof(proof, &len, key, n_list[t]);
+        CHECK(secp256k1_bls_dleag_verify(CTX, proof, len, n_list[t]) == 1);
+    }
+
+    n = 64;
+    dbls_test_make_proof(proof, &len, key, n);
+
+    /* V2. Wrong n_bits / wrong length. */
+    CHECK(secp256k1_bls_dleag_verify(CTX, proof, len, n - 1) == 0);
+    CHECK(secp256k1_bls_dleag_verify(CTX, proof, len, n + 1) == 0);
+    CHECK(secp256k1_bls_dleag_verify(CTX, proof, len - 1, n) == 0);
+    CHECK(secp256k1_bls_dleag_verify(CTX, proof, len + 1, n) == 0);
+
+    /* V3. One flipped bit in each region of the proof is rejected. */
+    {
+        size_t reg[11][2];
+        reg[0][0] = 0;                     reg[0][1] = 33;        /* secp pubkey */
+        reg[1][0] = 33;                    reg[1][1] = 48;        /* G1 pubkey */
+        reg[2][0] = 81;                    reg[2][1] = 64;        /* ECDSA */
+        reg[3][0] = 145;                   reg[3][1] = 80;        /* Schnorr-G1 */
+        reg[4][0] = DBLS_OFS_CG(0);        reg[4][1] = 33 * n;    /* C_G */
+        reg[5][0] = DBLS_OFS_CB(n, 0);     reg[5][1] = 48 * n;    /* C_B */
+        reg[6][0] = DBLS_OFS_JH(n);        reg[6][1] = 64;        /* J_hash, K_hash */
+        reg[7][0] = DBLS_OFS_A0(n, 0);     reg[7][1] = 32 * n;    /* a0 */
+        reg[8][0] = DBLS_OFS_A1(n, 0);     reg[8][1] = 32 * n;    /* a1 */
+        reg[9][0] = DBLS_OFS_B0(n, 0);     reg[9][1] = 32 * n;    /* b0 */
+        reg[10][0] = DBLS_OFS_B1(n, 0);    reg[10][1] = 32 * n;   /* b1 */
+        CHECK(reg[10][0] + reg[10][1] == len);
+        for (i = 0; i < 11; ++i) {
+            memcpy(p2, proof, len);
+            testrand_flip(p2 + reg[i][0], reg[i][1]);
+            CHECK(secp256k1_bls_dleag_verify(CTX, p2, len, n) == 0);
+        }
+    }
+
+    /* V4. Non-canonical / out-of-range scalars are rejected. */
+    memcpy(p2, proof, len); memcpy(p2 + DBLS_OFS_A0(n, 3), dbls_secp_order_be, 32);
+    CHECK(secp256k1_bls_dleag_verify(CTX, p2, len, n) == 0);                      /* a = n */
+    memcpy(p2, proof, len); memset(p2 + DBLS_OFS_A1(n, 3), 0, 32);
+    CHECK(secp256k1_bls_dleag_verify(CTX, p2, len, n) == 0);                      /* a = 0 */
+    memcpy(p2, proof, len); memcpy(p2 + DBLS_OFS_B0(n, 3), bls_fr_order_be, 32);
+    CHECK(secp256k1_bls_dleag_verify(CTX, p2, len, n) == 0);                      /* b = r */
+    memcpy(p2, proof, len); memset(p2 + DBLS_OFS_B1(n, 3), 0, 32); p2[DBLS_OFS_B1(n, 3) + 30] = 0xff;
+    CHECK(secp256k1_bls_dleag_verify(CTX, p2, len, n) == 0);                      /* b < 2^16 */
+
+    /* V5. Illegal arguments. */
+    CHECK_ILLEGAL(CTX, secp256k1_bls_dleag_verify(CTX, NULL, len, n));
+    CHECK_ILLEGAL(CTX, secp256k1_bls_dleag_verify(CTX, proof, len, 0));
+    CHECK_ILLEGAL(CTX, secp256k1_bls_dleag_verify(CTX, proof, len, 253));
+
+    secp256k1_generator_load(&H, &secp256k1_generator_const_h);
+
+    /* V6. Crafted J = infinity (bit 0, slot 0): C_G[0] = c*H, a0[0] = e0*c, so
+     *     J = a0*H - e0*C_G[0] = 0. Must return 0, not abort. */
+    {
+        const secp256k1_hash_ctx *hash_ctx = secp256k1_get_hash_context(CTX);
+        unsigned char pre[32], h[32];
+        memcpy(p2, proof, len);
+        testutil_random_scalar_order(&c);
+        secp256k1_gej_set_ge(&T, &H);
+        secp256k1_ecmult(&T, &T, &c, &secp256k1_scalar_zero);
+        dbls_test_rebalance_cg(p2, &T);
+        dbls_test_preimage(pre, p2, n);
+        dbls_dleag_hash(h, hash_ctx, pre, p2 + DBLS_OFS_JH(n), 32, p2 + DBLS_OFS_JH(n) + 32, 32, 0, 0);
+        CHECK(dbls_hash_sc_secp256k1(&e0, hash_ctx, h) == 1);
+        secp256k1_scalar_mul(&a, &e0, &c);
+        secp256k1_scalar_get_b32(p2 + DBLS_OFS_A0(n, 0), &a);
+        CHECK(secp256k1_bls_dleag_verify(CTX, p2, len, n) == 0);
+    }
+
+    /* V7. Crafted C_G[0] = G: in slot 1, C_G[0] - G = infinity is added as a
+     *     group element. Must return 0, not abort. */
+    memcpy(p2, proof, len);
+    secp256k1_gej_set_ge(&T, &secp256k1_ge_const_g);
+    dbls_test_rebalance_cg(p2, &T);
+    CHECK(secp256k1_bls_dleag_verify(CTX, p2, len, n) == 0);
+
+    /* V8. Crafted sum(2^i * C_G[i]) = infinity: C_G[0] -= P_secp. Must return 0, not abort. */
+    {
+        secp256k1_ge c0, P;
+        secp256k1_gej acc;
+        memcpy(p2, proof, len);
+        dbls_test_load_cg(&c0, p2, 0);
+        CHECK(secp256k1_eckey_pubkey_parse(&P, p2, 33) == 1);
+        secp256k1_ge_neg(&P, &P);
+        secp256k1_gej_set_ge(&acc, &c0);
+        secp256k1_gej_add_ge_var(&acc, &acc, &P, NULL);
+        dbls_test_store_cg(p2, 0, &acc);
+        CHECK(secp256k1_bls_dleag_verify(CTX, p2, len, n) == 0);
+    }
+
+    /* V9. Crafted ECDSA unblinding signature with r = -m/x: the verifier's
+     *     R = (m/s)*G + (r/s)*P is infinity. Must return 0, not abort. */
+    {
+        const secp256k1_hash_ctx *hash_ctx = secp256k1_get_hash_context(CTX);
+        secp256k1_sha256 hs;
+        unsigned char m32[32];
+        secp256k1_scalar m, x, r;
+        secp256k1_sha256_initialize(&hs);
+        secp256k1_sha256_write(hash_ctx, &hs, (const unsigned char *)dbls_sig_message, strlen(dbls_sig_message));
+        secp256k1_sha256_finalize(hash_ctx, &hs, m32);
+        secp256k1_scalar_set_b32(&m, m32, NULL);
+        secp256k1_scalar_set_b32(&x, key, NULL);
+        secp256k1_scalar_inverse_var(&r, &x);
+        secp256k1_scalar_mul(&r, &r, &m);
+        secp256k1_scalar_negate(&r, &r);
+        memcpy(p2, proof, len);
+        secp256k1_scalar_get_b32(p2 + 81, &r);
+        memset(p2 + 81 + 32, 0, 32); p2[81 + 63] = 1;              /* s = 1 (low-s) */
+        CHECK(secp256k1_bls_dleag_verify(CTX, p2, len, n) == 0);
+    }
+}
+
 /* --- Test registry --- */
 static const struct tf_test_entry tests_dleag_bls[] = {
     CASE1(test_dbls_proof_size),
@@ -724,6 +936,8 @@ static const struct tf_test_entry tests_dleag_bls[] = {
     CASE1(test_dbls_ecdsa_sign_gen),
     CASE1(test_dbls_bls_sign_gen),
     CASE1(test_dbls_prove),
+    CASE1(test_dbls_bls_decode_check_scalar),
+    CASE1(test_dbls_verify),
 };
 
 #endif
