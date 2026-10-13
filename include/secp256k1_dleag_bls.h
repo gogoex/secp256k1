@@ -25,6 +25,18 @@ extern "C" {
  *         which holds for any value representable in `n_bits` bits (n_bits<=252).
  */
 
+/* Size in bytes of a proof covering n_bits bits (n_bits in 1..252 for prove/verify). */
+SECP256K1_API size_t secp256k1_bls_dleag_size(size_t n_bits);
+
+/* Check that p is a valid 48-byte compressed BLS12-381 G1 point: canonical
+ * encoding, on the curve, in the prime-order subgroup, and not infinity.
+ * Use on the G1 pubkey embedded in a proof (bytes 33..81).
+ * Returns: 1 if valid, 0 otherwise. */
+SECP256K1_API SECP256K1_WARN_UNUSED_RESULT int secp256k1_bls_dleag_verify_bls_point(
+    const secp256k1_context *ctx,
+    const unsigned char *p
+) SECP256K1_ARG_NONNULL(1) SECP256K1_ARG_NONNULL(2);
+
 /* Create a proof.
  *
  * Returns: 1 on success, 0 on failure.

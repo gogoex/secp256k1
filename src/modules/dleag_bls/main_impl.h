@@ -428,6 +428,17 @@ static size_t dbls_proof_size(size_t n_bits) {
            209 * n_bits;  /* per bit: C_G(33) + C_B(48) + 4 scalars(128) */
 }
 
+size_t secp256k1_bls_dleag_size(size_t n_bits) {
+    return dbls_proof_size(n_bits);
+}
+
+int secp256k1_bls_dleag_verify_bls_point(const secp256k1_context *ctx, const unsigned char *p) {
+    secp256k1_bls_point P;
+    VERIFY_CHECK(ctx != NULL);
+    (void)ctx;
+    return secp256k1_bls_point_parse(&P, p);
+}
+
 int secp256k1_bls_dleag_prove(
     const secp256k1_context *ctx,
     unsigned char *proof_out,
