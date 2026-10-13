@@ -7715,6 +7715,10 @@ static void run_ecdsa_wycheproof(void) {
 # include "modules/bls12_381/tests_impl.h"
 #endif
 
+#ifdef ENABLE_MODULE_DLEAG_BLS
+# include "modules/dleag_bls/tests_impl.h"
+#endif
+
 static void run_secp256k1_memczero_test(void) {
     unsigned char buf1[6] = {1, 2, 3, 4, 5, 6};
     unsigned char buf2[sizeof(buf1)];
@@ -8068,6 +8072,9 @@ static const struct tf_test_module registry_modules[] = {
 #endif
 #ifdef ENABLE_MODULE_BLS12_381
     MAKE_TEST_MODULE(bls12_381),
+#endif
+#ifdef ENABLE_MODULE_DLEAG_BLS
+    MAKE_TEST_MODULE(dleag_bls),
 #endif
     MAKE_TEST_MODULE(utils),
 };
