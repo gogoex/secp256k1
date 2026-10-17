@@ -57,6 +57,8 @@ option(SECP256K1_ENABLE_MODULE_GENERATOR "Enable generator module." ON)
 option(SECP256K1_ENABLE_MODULE_ED25519 "Enable ed25519 module." ON)
 option(SECP256K1_ENABLE_MODULE_DLEAG "Enable DLEAG module." ON)
 option(SECP256K1_ENABLE_MODULE_ECDSAOTVES "Enable ECDSA OT-VES module." ON)
+option(SECP256K1_ENABLE_MODULE_BLS12_381 "Enable BLS12-381 module." ON)
+option(SECP256K1_ENABLE_MODULE_DLEAG_BLS "Enable DLEAG_BLS module." ON)
 
 # Processing must be done in a topological sorting of the dependency graph
 # (dependent module first).
@@ -137,6 +139,16 @@ if(NOT SECP256K1_EXPERIMENTAL)
   if(SECP256K1_ENABLE_MODULE_ED25519)
     message(FATAL_ERROR "ED25519 module is experimental. Use -DSECP256K1_EXPERIMENTAL=ON to allow.")
   endif()
+  if(SECP256K1_ENABLE_MODULE_BLS12_381)
+    message(FATAL_ERROR "BLS12_381 module is experimental. Use -DSECP256K1_EXPERIMENTAL=ON to allow.")
+  endif()
+  if(SECP256K1_ENABLE_MODULE_DLEAG_BLS)
+    message(FATAL_ERROR "DLEAG_BLS module is experimental. Use -DSECP256K1_EXPERIMENTAL=ON to allow.")
+  endif()
+endif()
+
+if(SECP256K1_ENABLE_MODULE_BLS12_381)
+  enable_language(ASM)
 endif()
 
 set(SECP256K1_VALGRIND "AUTO" CACHE STRING "Build with extra checks for running inside Valgrind. [default=AUTO]")

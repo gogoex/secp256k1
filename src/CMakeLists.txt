@@ -68,6 +68,19 @@ if(SECP256K1_ENABLE_MODULE_ECDSAOTVES)
   set_property(TARGET secp256k1 APPEND PROPERTY PUBLIC_HEADER ${PROJECT_SOURCE_DIR}/include/secp256k1_ecdsaotves.h)
 endif()
 
+if(SECP256K1_ENABLE_MODULE_BLS12_381)
+  add_compile_definitions(ENABLE_MODULE_BLS12_381=1)
+  set_property(TARGET secp256k1 APPEND PROPERTY PUBLIC_HEADER ${PROJECT_SOURCE_DIR}/include/secp256k1_bls12_381.h)
+endif()
+
+if(SECP256K1_ENABLE_MODULE_DLEAG_BLS)
+  if(NOT SECP256K1_ENABLE_MODULE_GENERATOR OR NOT SECP256K1_ENABLE_MODULE_BLS12_381)
+    message(FATAL_ERROR "Module dependency error: Generator and BLS12_381 modules are required by the DLEAG_BLS module.")
+  endif()
+  add_compile_definitions(ENABLE_MODULE_DLEAG_BLS=1)
+  set_property(TARGET secp256k1 APPEND PROPERTY PUBLIC_HEADER ${PROJECT_SOURCE_DIR}/include/secp256k1_dleag_bls.h)
+endif()
+
 
 add_library(secp256k1_precomputed OBJECT EXCLUDE_FROM_ALL
   precomputed_ecmult.c
@@ -108,6 +121,19 @@ endif()
 # Grab the PIC property from secp256k1 which knows.
 get_target_property(use_pic secp256k1 POSITION_INDEPENDENT_CODE)
 set_target_properties(secp256k1_precomputed PROPERTIES POSITION_INDEPENDENT_CODE ${use_pic})
+
+if(SECP256K1_ENABLE_MODULE_BLS12_381)
+  add_library(secp256k1_blst OBJECT EXCLUDE_FROM_ALL
+    modules/bls12_381/blst/src/server.c
+    modules/bls12_381/blst/build/assembly.S
+  )
+  set_target_properties(secp256k1_blst PROPERTIES C_STANDARD 99 POSITION_INDEPENDENT_CODE ${use_pic})
+  target_compile_options(secp256k1_blst PRIVATE -fno-builtin)
+  target_include_directories(secp256k1_blst PRIVATE modules/bls12_381/blst/build)
+  target_sources(secp256k1 PRIVATE $<TARGET_OBJECTS:secp256k1_blst>)
+  target_sources(secp256k1_objs INTERFACE $<TARGET_OBJECTS:secp256k1_blst>)
+  target_sources(secp256k1_asm INTERFACE $<TARGET_OBJECTS:secp256k1_blst>)
+endif()
 
 # Add the include path for parent projects so that they don't have to manually add it.
 target_include_directories(secp256k1 INTERFACE
